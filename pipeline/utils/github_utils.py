@@ -18,52 +18,56 @@ reference https://developer.github.com/v3/"""
 import requests
 import json
 import os
+from urllib2 import HTTPError
 
 _API_URL = 'https://api.github.com'
-# file modes for different git file types
-_TREE_EL_MODES = {'file': u'100644',
-                  'executable': u'100755',
-                  'tree': u'040000',
-                  'symlink': u'120000'}
-_REQUEST_FUNCS = {'GET': requests.get,
-                  'POST': requests.post,
-                  'PATCH': requests.patch}
-
-
-def _is_executable(el):
-    return os.path.isfile(el) and os.access(el, os.X_OK)
+# modes for git objects
+_FILE_MODE = u'100644'
+_EXEC_MODE = u'100755'
+_TREE_MODE = u'040000'
 
 
 def _get_immediate_subdirs(a_dir):
-    return filter(lambda x: os.path.isdir(os.path.join(a_dir, x)),
-                  os.listdir(a_dir))
+    return [dir_item for dir_item in os.listdir(a_dir)
+            if (os.path.isdir(os.path.join(a_dir, dir_item)))]
 
 
 def _get_immediate_files(a_dir):
-    return filter(lambda x: os.path.isfile(os.path.join(a_dir, x)),
-                  os.listdir(a_dir))
+    return [dir_item for dir_item in os.listdir(a_dir)
+            if os.path.isfile(os.path.join(a_dir, dir_item))]
 
 
 def _exec_request(http_method, url, req_data=None, username=None,
                   password=None):
     """Make an HTTP request with given data and (username, password) tuple.
-    Return json response if request succeeds, otherwise raise an exception"""
-    request_func = _REQUEST_FUNCS[http_method]
+
+    Returns:
+        json response to request
+
+    Raises:
+        HTTPError: HTTP Request fails
+
+    """
     if username and password:
-        attempt = request_func(url, data=req_data, auth=(username, password))
+        attempt = http_method(url, data=req_data, auth=(username, password))
     else:
-        attempt = request_func(url, data=req_data)
+        attempt = http_method(url, data=req_data)
     if attempt.ok:
         return json.loads(attempt.content)
     else:
-        raise Exception(
-            'Failed request at {0}. Reason: {1}'.format(url, attempt.content))
+        raise HTTPError(url, attempt.status_code, attempt.content,
+                        attempt.headers, None)
+
+
+def _get_file_mode(el):
+    if os.path.isfile(el) and os.access(el, os.X_OK):
+        return _EXEC_MODE
+    return _FILE_MODE
 
 
 def _get_subtree_sha(orig_tree, path):
-    tree_mode = _TREE_EL_MODES['tree']
     gen = (x for x in orig_tree['tree'] if (x['path'] == path and
-                                            x['mode'] == tree_mode))
+                                            x['mode'] == _TREE_MODE))
     subtree_item = next(gen, None)
     if subtree_item:
         return subtree_item['sha']
@@ -73,59 +77,86 @@ def _get_subtree_sha(orig_tree, path):
 # according to GitHub protocol
 def _extend_git_tree(curr_dir, username, password, base_url,
                      orig_tree_sha=None):
+    """Create a git tree from contents of local directory curr_dir.
+
+    If orig_tree_sha is provided, the new tree inherits all structure from
+    the remote tree with sha orig_tree_sha. The new tree will always include
+    files or paths that are present in the remote tree. However, if the
+    curr_dir and the remote tree  have conflicting contents for files with the
+    same path, the new tree will use the content of curr_dir.
+
+    Returns:
+        New tree object as a dictionary, if curr_dir has files
+        Otherwise, returns None
+    Raises:
+        HTTPError: An HTTP request used to construct the tree fails
+
+    """
     if orig_tree_sha:
         orig_tree = _exec_request(
-            'GET', base_url + 'git/trees/{0}'.format(orig_tree_sha))
+            requests.get, base_url + 'git/trees/{0}'.format(orig_tree_sha))
     tree_els = []
     for subdir in _get_immediate_subdirs(curr_dir):
+        subtree_sha = None
         if orig_tree_sha:
             subtree_sha = _get_subtree_sha(orig_tree, subdir)
-        else:
-            subtree_sha = None
-        subtree = _extend_git_tree(
-            os.path.join(curr_dir, subdir), username, password, base_url,
-            subtree_sha)
-        tree_els.append({'path': subdir, 'mode': _TREE_EL_MODES['tree'],
-                         'type': 'tree', 'sha': subtree['sha']})
+        subtree = _extend_git_tree(os.path.join(curr_dir, subdir), username,
+                                   password, base_url, subtree_sha)
+        # Add the subtree to tree_els iff subdir contains files
+        if subtree:
+            tree_els.append({'path': subdir, 'mode': _TREE_MODE,
+                             'type': 'tree', 'sha': subtree['sha']})
     for exec_or_file in _get_immediate_files(curr_dir):
         with open(os.path.join(curr_dir, exec_or_file), 'r') as f:
             path_content = f.read()
-        mode = _TREE_EL_MODES['file']
-        if _is_executable(os.path.join(curr_dir, exec_or_file)):
-            mode = _TREE_EL_MODES['executable']
-        tree_els.append({'path': exec_or_file, 'mode': mode, 'type': 'blob',
-                         'content': path_content})
-    data_dict = {'tree': tree_els}
-    if orig_tree_sha:
-        data_dict['base_tree'] = orig_tree_sha
-    if not tree_els:
-        raise Exception("Cannot create empty folder {0} in Git".format(
-            curr_dir))
-    return _exec_request('POST', base_url + 'git/trees',
-                         json.dumps(data_dict), username, password)
+        tree_els.append({'path': exec_or_file,
+                         'mode': _get_file_mode(os.path.join(curr_dir,
+                                                             exec_or_file)),
+                         'type': 'blob', 'content': path_content})
+    # Git doesn't allow empty trees
+    if tree_els:
+        data_dict = {'tree': tree_els}
+        if orig_tree_sha:
+            data_dict['base_tree'] = orig_tree_sha
+        return _exec_request(requests.post, base_url + 'git/trees',
+                             json.dumps(data_dict), username, password)
 
 
 def push_dir_github(output_dir, username, password, owner, repo, branch,
                     message='Automated commit from artman'):
-    """ Push all content in output_dir to the given GitHub repo branch"""
+    """Push all content in output_dir to the given GitHub repo branch.
+
+    The effect of running the task is not exactly the same as that of a
+    forced git push: this won't change or delete files that are missing
+    in the local repo but are present in the remote repo.
+
+    Returns:
+        None
+    Raises:
+        ValueError: curr_dir is empty
+        HTTPError: An HTTP request used to construct the tree fails
+
+    """
     base_url = '{0}/repos/{1}/{2}/'.format(_API_URL, owner, repo)
     # get the sha of the latest commit on this branch
     branch_item = _exec_request(
-        'GET',
+        requests.get,
         base_url + 'branches/{0}'.format(branch))
     commit_sha = branch_item['commit']['sha']
     orig_tree_sha = branch_item['commit']['commit']['tree']['sha']
     root_tree = _extend_git_tree(output_dir, username, password,
                                  base_url, orig_tree_sha)
+    if not root_tree:
+        raise ValueError("Cannot push empty folder {0}".format(output_dir))
     # make a new commit using the built tree, with the previous commit as its
     # only parent
     req_data = json.dumps({'tree': root_tree['sha'],
                            'parents': [commit_sha], 'message': message})
-    new_commit_item = _exec_request('POST',
+    new_commit_item = _exec_request(requests.post,
                                     base_url + 'git/commits', req_data,
                                     username, password)
     # update the repository's refs so that the branch head is the new commit
-    _exec_request('PATCH',
+    _exec_request(requests.patch,
                   base_url + 'git/refs/heads/{0}'.format(branch),
                   json.dumps({'sha': new_commit_item['sha'],
                               'force': True}),
