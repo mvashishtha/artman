@@ -45,7 +45,7 @@ def _exec_request(http_method, url, req_data=None, username=None,
         json response to request
 
     Raises:
-        HTTPError: HTTP Request fails
+        HTTPError: HTTP Request failed
 
     """
     if username and password:
@@ -86,10 +86,11 @@ def _extend_git_tree(curr_dir, username, password, base_url,
     same path, the new tree will use the content of curr_dir.
 
     Returns:
-        New tree object as a dictionary, if curr_dir has files
+        New tree object as a dictionary, if curr_dir had files
         Otherwise, returns None
+
     Raises:
-        HTTPError: An HTTP request used to construct the tree fails
+        HTTPError: An HTTP request used to construct the tree failed
 
     """
     if orig_tree_sha:
@@ -132,9 +133,10 @@ def push_dir_github(output_dir, username, password, owner, repo, branch,
 
     Returns:
         None
+
     Raises:
-        ValueError: curr_dir is empty
-        HTTPError: An HTTP request used to construct the tree fails
+        ValueError: output_dir was empty
+        HTTPError: An HTTP request used to construct the Git tree failed
 
     """
     base_url = '{0}/repos/{1}/{2}/'.format(_API_URL, owner, repo)

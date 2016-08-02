@@ -61,12 +61,14 @@ class MavenDeployTask(task_base.TaskBase):
 
 
 class GitHubPushTask(task_base.TaskBase):
-    """Uploads local files to GitHub repository in a new commit. Won't
-    delete files (if missing in local repo) from the remote repo. If the
+    """Uploads local files to GitHub repository in a new commit.
+
+    Won't delete files (if missing in local repo) from the remote repo. If the
     remote copy of a file differs from local copy, overwrites with local copy.
     Does not change files or folders that are in remote repo but not in local
-    repo."""
+    repo.
 
+    """
     def execute(self, owner, branch, username, password, publish_env,
                 dir_to_push, message):
         github_utils.push_dir_github(dir_to_push, username, password, owner,
