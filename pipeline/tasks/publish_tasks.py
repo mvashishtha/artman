@@ -67,12 +67,11 @@ class GitHubPushTask(task_base.TaskBase):
     remote copy of a file differs from local copy, overwrites with local copy.
     Does not change files or folders that are in remote repo but not in local
     repo.
-
     """
     def execute(self, owner, branch, username, password, publish_env,
                 dir_to_push, message):
-        github_utils.push_dir_github(dir_to_push, username, password, owner,
-                                     publish_env, branch, message)
+        github_utils.push_dir_to_github(dir_to_push, username, password, owner,
+                                        publish_env, branch, message)
 
     def validate(self):
         return []

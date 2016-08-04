@@ -46,7 +46,6 @@ def _exec_request(http_method, url, req_data=None, username=None,
 
     Raises:
         HTTPError: HTTP Request failed
-
     """
     if username and password:
         attempt = http_method(url, data=req_data, auth=(username, password))
@@ -91,7 +90,6 @@ def _extend_git_tree(curr_dir, username, password, base_url,
 
     Raises:
         HTTPError: An HTTP request used to construct the tree failed
-
     """
     if orig_tree_sha:
         orig_tree = _exec_request(
@@ -123,9 +121,9 @@ def _extend_git_tree(curr_dir, username, password, base_url,
                              json.dumps(data_dict), username, password)
 
 
-def push_dir_github(output_dir, username, password, owner, repo, branch,
-                    message='Automated commit from artman'):
-    """Push all content in output_dir to the given GitHub repo branch.
+def push_dir_to_github(local_dir, username, password, owner, repo, branch,
+                       message='Automated commit from artman'):
+    """Push all content in local_dir to the given GitHub repo branch.
 
     The effect of running the task is not exactly the same as that of a
     forced git push: this won't change or delete files that are missing
@@ -135,9 +133,8 @@ def push_dir_github(output_dir, username, password, owner, repo, branch,
         None
 
     Raises:
-        ValueError: output_dir was empty
+        ValueError: local_dir was empty
         HTTPError: An HTTP request used to construct the Git tree failed
-
     """
     base_url = '{0}/repos/{1}/{2}/'.format(_API_URL, owner, repo)
     # get the sha of the latest commit on this branch
@@ -146,10 +143,10 @@ def push_dir_github(output_dir, username, password, owner, repo, branch,
         base_url + 'branches/{0}'.format(branch))
     commit_sha = branch_item['commit']['sha']
     orig_tree_sha = branch_item['commit']['commit']['tree']['sha']
-    root_tree = _extend_git_tree(output_dir, username, password,
+    root_tree = _extend_git_tree(local_dir, username, password,
                                  base_url, orig_tree_sha)
     if not root_tree:
-        raise ValueError("Cannot push empty folder {0}".format(output_dir))
+        raise ValueError('Cannot push empty folder {0}'.format(local_dir))
     # make a new commit using the built tree, with the previous commit as its
     # only parent
     req_data = json.dumps({'tree': root_tree['sha'],

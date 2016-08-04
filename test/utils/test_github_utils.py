@@ -134,8 +134,8 @@ os_module = fake_fs.FakeOsModule(fs)
 @mock.patch('requests.get', side_effect=_GET_SIDE_EFFECT)
 def test_github_utils_task(mock_get, mock_post, mock_patch, mock_listdir,
                            mock_isdir, mock_isfile, mock_access, mock_open):
-    github_utils.push_dir_github('/', _USERNAME, _PASSWORD, _OWNER,
-                                 _REPO, _BRANCH, _MESSAGE)
+    github_utils.push_dir_to_github('/', _USERNAME, _PASSWORD, _OWNER,
+                                    _REPO, _BRANCH, _MESSAGE)
     mock_get.assert_has_calls(_EXPECTED_GET_ARGS)
     mock_post.assert_has_calls(_EXPECTED_POST_ARGS)
     mock_patch.assert_has_calls(_EXPECTED_PATCH_ARGS)
